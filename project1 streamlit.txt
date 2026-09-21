@@ -1,0 +1,504 @@
+import streamlit as st
+import pandas as pd
+from sqlalchemy import create_engine
+from urllib.parse import quote_plus
+
+
+# ============================================================
+# 1. STREAMLIT PAGE
+# ============================================================
+
+st.set_page_config(
+    page_title="Earthquake Dashboard",
+    page_icon="🌍",
+    layout="wide"
+)
+
+st.title("🌍 Earthquake Analysis Dashboard")
+
+
+# ============================================================
+# 2. MYSQL CONNECTION
+# ============================================================
+
+username = "root"
+password = "Gayathri091022"
+host = "localhost"
+port = 3306
+database = "mydb"
+
+connection_url = (
+    f"mysql+pymysql://{username}:"
+    f"{quote_plus(password)}@"
+    f"{host}:{port}/"
+    f"{database}"
+)
+
+engine = create_engine(connection_url)
+
+
+# ============================================================
+# 3. TEST CONNECTION
+# ============================================================
+
+try:
+
+    with engine.connect():
+        st.sidebar.success("✅ MySQL Connected")
+
+except Exception as e:
+
+    st.sidebar.error("❌ Connection Failed")
+
+    st.error(str(e))
+
+    st.stop()
+
+
+# ============================================================
+# 4. LIST OF  QUESTIONS
+# ============================================================
+
+questions = {
+
+    "Top 10 Strongest Earthquakes": """
+        SELECT
+            id, country, time, mag
+                    FROM my_table
+        WHERE mag IS NOT NULL
+        ORDER BY mag DESC
+        LIMIT 10
+    """,
+
+    " Top 10 Deepest Earthquakes": """
+        SELECT id, country, depth_km, mag, time FROM my_table ORDER BY depth_km DESC LIMIT 10
+    """,
+
+    " Shallow Earthquakes With Magnitude > 7.5": """
+       SELECT time, country,depth_km, mag
+FROM my_table
+WHERE 
+    depth_km < 50 
+    AND mag > 7.5
+ORDER BY 
+    mag DESC
+    """,
+" Average depth per continent": """
+        SELECT 
+    CASE 
+        -- North America roughly
+        WHEN latitude BETWEEN 7 AND 85 AND longitude BETWEEN -168 AND -52 THEN 'North America'
+        -- South America roughly
+        WHEN latitude BETWEEN -56 AND 12 AND longitude BETWEEN -82 AND -34 THEN 'South America'
+        -- Europe roughly
+        WHEN latitude BETWEEN 34 AND 82 AND longitude BETWEEN -25 AND 60 THEN 'Europe'
+        -- Africa roughly
+        WHEN latitude BETWEEN -35 AND 38 AND longitude BETWEEN -18 AND 52 THEN 'Africa'
+        -- Asia roughly
+        WHEN latitude BETWEEN -11 AND 78 AND longitude BETWEEN 26 AND 170 THEN 'Asia'
+        -- Oceania / Australia roughly
+        WHEN latitude BETWEEN -48 AND 0 AND longitude BETWEEN 110 AND 180 THEN 'Oceania'
+        -- Antarctica roughly
+        WHEN latitude BETWEEN -90 AND -60 THEN 'Antarctica'
+        ELSE 'Other/Ocean'
+    END AS continent,
+    AVG(depth_km) AS average_depth
+FROM 
+    my_table
+GROUP BY 
+    1;
+    """,
+
+    " Average magnitude per magnitude type": """
+        SELECT 
+    magtype,
+    AVG(mag) AS average_magnitude,
+    COUNT(*) AS total_earthquakes
+FROM my_table
+GROUP BY 
+    magType
+ORDER BY 
+    average_magnitude DESC
+    """,
+
+    " Year with most earthquakes.": """
+       SELECT 
+    EXTRACT(YEAR FROM time) AS earthquake_year, 
+    COUNT(*) AS total_earthquakes
+FROM my_table
+GROUP BY 
+    earthquake_year
+ORDER BY 
+    total_earthquakes DESC
+LIMIT 1
+    """,
+
+" Month with highest number of earthquakes.": """
+       SELECT 
+    EXTRACT(MONTH FROM time) AS earthquake_month, 
+    COUNT(*) AS earthquake_count
+FROM my_table
+GROUP BY earthquake_month
+ORDER BY earthquake_count DESC
+LIMIT 5
+    """,
+
+    " Day of week with most earthquakes": """
+        SELECT 
+    DAYNAME(time) AS day_of_week, 
+    COUNT(*) AS earthquake_count
+FROM my_table
+GROUP BY DAYNAME(time), WEEKDAY(time) -- WEEKDAY helps sort chronologically or just group cleanly
+ORDER BY earthquake_count DESC
+LIMIT 1
+    """,
+
+    " Count of earthquakes per hour of day": """
+       SELECT EXTRACT(HOUR FROM time) AS hour_of_day,
+       COUNT(*) AS earthquake_count
+FROM my_table
+GROUP BY hour_of_day
+ORDER BY hour_of_day
+    """,
+
+"  Most active reporting network ": """
+        SELECT 
+    network_id, 
+    COUNT(*) AS total_reports
+FROM 
+    reports
+GROUP BY 
+    network_id
+ORDER BY 
+    total_reports DESC
+LIMIT 1
+    """,
+
+    " Top 5 places with highest casualties": """
+        SELECT net,
+    COUNT(*) AS total_reports
+FROM my_table
+GROUP BY 
+    net
+ORDER BY 
+    total_reports DESC
+LIMIT 1
+    """,
+
+    " Total estimated economic loss per continent": """
+       SELECT country, sig
+FROM my_table
+ORDER BY sig DESC
+LIMIT 5
+    """,
+"  Average economic loss by alert level": """
+     SELECT 
+    CASE 
+        -- North America roughly
+        WHEN latitude BETWEEN 7 AND 85 AND longitude BETWEEN -168 AND -52 THEN 'North America'
+        -- South America roughly
+        WHEN latitude BETWEEN -56 AND 12 AND longitude BETWEEN -82 AND -34 THEN 'South America'
+        -- Europe roughly
+        WHEN latitude BETWEEN 34 AND 82 AND longitude BETWEEN -25 AND 60 THEN 'Europe'
+        -- Africa roughly
+        WHEN latitude BETWEEN -35 AND 38 AND longitude BETWEEN -18 AND 52 THEN 'Africa'
+        -- Asia roughly
+        WHEN latitude BETWEEN -11 AND 78 AND longitude BETWEEN 26 AND 170 THEN 'Asia'
+        -- Oceania / Australia roughly
+        WHEN latitude BETWEEN -48 AND 0 AND longitude BETWEEN 110 AND 180 THEN 'Oceania'
+        -- Antarctica roughly
+        WHEN latitude BETWEEN -90 AND -60 THEN 'Antarctica'
+        ELSE 'Other/Ocean'
+    END AS continent,
+    sum(sig) AS economic_loss
+FROM 
+    my_table
+GROUP BY 
+    1   
+    """,
+
+    " Count of reviewed vs automatic earthquakes": """
+      SELECT 
+    alert, 
+    AVG(sig) AS economic_loss
+FROM my_table
+GROUP BY alert
+ORDER BY  economic_loss DESC  
+    """,
+
+    " Count by earthquake type": """
+     SELECT 
+    status, 
+    COUNT(*) AS earthquake_count
+FROM my_table
+WHERE 
+    status IN ('reviewed', 'automatic')
+GROUP BY 
+    status
+    """,
+"  Number of earthquakes by data type": """
+     SELECT event_type, COUNT(*) AS earthquake_count
+FROM my_table
+GROUP BY event_type
+ORDER BY earthquake_count DESC   
+    """,
+
+    " Average RMS and gap per continent": """
+     SELECT 
+    types, 
+    COUNT(*) AS earthquake_count
+FROM my_table
+GROUP BY 
+    types
+ORDER BY 
+    earthquake_count DESC   
+    """,
+
+    "  Events with high station coverage": """
+     SELECT 
+    CASE 
+        -- North America roughly
+        WHEN latitude BETWEEN 7 AND 85 AND longitude BETWEEN -168 AND -52 THEN 'North America'
+        -- South America roughly
+        WHEN latitude BETWEEN -56 AND 12 AND longitude BETWEEN -82 AND -34 THEN 'South America'
+        -- Europe roughly
+        WHEN latitude BETWEEN 34 AND 82 AND longitude BETWEEN -25 AND 60 THEN 'Europe'
+        -- Africa roughly
+        WHEN latitude BETWEEN -35 AND 38 AND longitude BETWEEN -18 AND 52 THEN 'Africa'
+        -- Asia roughly
+        WHEN latitude BETWEEN -11 AND 78 AND longitude BETWEEN 26 AND 170 THEN 'Asia'
+        -- Oceania / Australia roughly
+        WHEN latitude BETWEEN -48 AND 0 AND longitude BETWEEN 110 AND 180 THEN 'Oceania'
+        -- Antarctica roughly
+        WHEN latitude BETWEEN -90 AND -60 THEN 'Antarctica'
+        ELSE 'Other/Ocean'
+    END AS continent,
+   avg(rms) AS average_rms,avg(gap) AS average_gap
+FROM 
+    my_table
+GROUP BY 
+    1
+    """,
+" Number of tsunamis triggered per year": """
+      SELECT 
+    id, 
+    time, country,
+    mag, 
+    nst
+FROM my_table
+WHERE 
+    nst IS NOT NULL
+ORDER BY 
+    nst DESC
+LIMIT 10  
+    """,
+
+    "  Count earthquakes by alert levels": """
+      SELECT 
+    EXTRACT(year FROM time) AS tsunami_year,
+    COUNT(*) AS total_tsunamis
+FROM my_table
+WHERE 
+    tsunami = 1
+GROUP BY 
+   tsunami_year
+ORDER BY 
+    tsunami_year DESC  
+    """,
+
+    " .Find the top 5 countries with the highest average magnitude of earthquakes in the past 5 years": """
+     SELECT 
+    alert, 
+    COUNT(*) AS earthquake_count
+FROM my_table
+GROUP BY 
+    alert
+ORDER BY 
+    earthquake_count DESC
+    """,
+" Find countries that have experienced both shallow and deep earthquakes within the same month.": """
+    SELECT 
+    country,
+    ROUND(AVG(mag), 2) AS average_magnitude,
+    COUNT(*) AS total_earthquakes
+FROM my_table
+WHERE 
+   time >= DATE_SUB(CURDATE(), INTERVAL 5 YEAR)
+    AND mag IS NOT NULL
+GROUP BY 
+    country
+HAVING 
+    COUNT(*) >= 5 -- Filters out countries with only one or two isolated anomalies
+ORDER BY 
+    average_magnitude DESC limit 5    
+    """,
+
+    " Compute the year-over-year growth rate in the total number of earthquakes globally.": """
+    SELECT 
+    country,
+    COUNT(*) AS earthquake_count,
+    ROUND(AVG(mag), 2) AS avg_magnitude,
+    ROUND(COUNT(*) * AVG(mag), 2) AS activity_score
+FROM my_table
+WHERE country IS NOT NULL 
+  AND mag >= 4.0 
+GROUP BY country
+ORDER BY activity_score DESC
+LIMIT 3    
+    """,
+
+    " List the 3 most seismically active regions by combining both frequency and average magnitude": """
+     SELECT 
+    country,
+    COUNT(CASE WHEN depth_km BETWEEN 0 AND 70 THEN 1 END) AS shallow_count,
+    COUNT(CASE WHEN depth_km > 300 THEN 1 END) AS deep_count,
+    -- Calculate ratio, using NULLIF to prevent division-by-zero errors
+    ROUND(
+        COUNT(CASE WHEN depth_km BETWEEN 0 AND 70 THEN 1 END) * 1.0 / 
+        NULLIF(COUNT(CASE WHEN depth_km > 300 THEN 1 END), 0), 
+        2
+    ) AS shallow_to_deep_ratio
+FROM my_table
+WHERE 
+    country IS NOT NULL
+GROUP BY 
+    country
+    HAVING 
+    COUNT(CASE WHEN depth_km > 300 THEN 1 END) > 0
+ORDER BY 
+    shallow_to_deep_ratio DESC
+    """,
+" For each country, calculate the average depth of earthquakes within ±5° latitude range of the equator": """
+     SELECT 
+    AVG(CASE WHEN tsunami = 1 THEN mag END) AS avg_mag_with_tsunami,
+    AVG(CASE WHEN tsunami = 0 THEN mag END) AS avg_mag_without_tsunami,
+    AVG(CASE WHEN tsunami = 1 THEN mag END) - AVG(CASE WHEN tsunami = 0 THEN mag END) AS magnitude_difference
+FROM my_table   
+    """,
+
+    " Identify countries having the highest ratio of shallow to deep earthquakes": """
+     SELECT 
+    id,
+    AVG(gap) AS average_gap,
+    AVG(rms) AS average_rms
+FROM my_table
+GROUP BY 
+   id
+ORDER BY 
+    average_gap DESC, 
+    average_rms DESC   
+    """,
+
+    " Find the average magnitude difference between earthquakes with tsunami alerts and those without": """
+     SELECT country, 
+    COUNT(*) AS earthquake_count
+FROM my_table
+WHERE 
+    depth_km > 300
+GROUP BY 
+    country
+ORDER BY 
+    earthquake_count DESC
+    """
+}
+
+
+# ============================================================
+# 5. LIST BOX
+# ============================================================
+
+st.sidebar.header("📋 Select Question")
+
+selected_question = st.sidebar.selectbox(
+    "Choose a question:",
+    list(questions.keys())
+)
+
+
+# ============================================================
+# 6. GET SELECTED SQL
+# ============================================================
+
+sql = questions[selected_question]
+
+
+# ============================================================
+# 7. DISPLAY SELECTED QUESTION
+# ============================================================
+
+st.header(selected_question)
+
+
+# ============================================================
+# 8. SHOW SQL
+# ============================================================
+
+with st.expander("🔍 Show SQL"):
+
+    st.code(
+        sql,
+        language="sql"
+    )
+
+
+# ============================================================
+# 9. EXECUTE SQL
+# ============================================================
+
+try:
+
+    with st.spinner("Running SQL..."):
+
+        df = pd.read_sql(
+            sql,
+            engine
+        )
+
+except Exception as e:
+
+    st.error("❌ SQL Query Failed")
+
+    st.code(str(e))
+
+    st.stop()
+
+
+# ============================================================
+# 10. DISPLAY RESULT
+# ============================================================
+
+st.subheader("📊 Result")
+
+if df.empty:
+
+    st.warning("No records found.")
+
+else:
+
+    st.success(
+        f"{len(df)} records found."
+    )
+
+    st.dataframe(
+        df,
+        use_container_width=True,
+        hide_index=True
+    )
+
+
+# ============================================================
+# 11. DOWNLOAD RESULT
+# ============================================================
+
+if not df.empty:
+
+    csv_data = df.to_csv(
+        index=False
+    )
+
+    st.download_button(
+        label="⬇️ Download CSV",
+        data=csv_data,
+        file_name="earthquake_result.csv",
+        mime="text/csv"
+    )
